@@ -4,7 +4,8 @@ set -euo pipefail
 
 APP=strix
 REPO="usestrix/strix"
-STRIX_IMAGE="ghcr.io/usestrix/strix-sandbox:1.4.0"
+STRIX_IMAGE="ghcr.io/usestrix/strix-sandbox@sha256:9ff1be4044c3ff5e9fcecb118b9855f8d1270db39358523e43fb3a13c0027009"
+PINNED_VERSION="1.7.0"
 
 MUTED='\033[0;2m'
 RED='\033[0;31m'
@@ -74,13 +75,12 @@ INSTALL_DIR=$HOME/.strix/bin
 mkdir -p "$INSTALL_DIR"
 
 if [ -z "$requested_version" ]; then
-    specific_version=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
-    if [[ $? -ne 0 || -z "$specific_version" ]]; then
-        echo -e "${RED}Failed to fetch version information${NC}"
-        exit 1
-    fi
+    specific_version="$PINNED_VERSION"
+elif [ "$requested_version" != "$PINNED_VERSION" ]; then
+    echo -e "${RED}This installer is pinned to ${PINNED_VERSION}. Refusing to download ${requested_version}.${NC}"
+    exit 1
 else
-    specific_version=$requested_version
+    specific_version="$requested_version"
 fi
 
 filename="$APP-${specific_version}-${target}${archive_ext}"
@@ -155,6 +155,26 @@ download_and_install() {
 
     if [ ! -f "$filename" ]; then
         echo -e "${RED}Download failed${NC}"
+        exit 1
+    fi
+
+    case "$target" in
+        linux-x86_64) expected="b8cd7e84d63cbeff6726301a9e08fddedf40fc6a4edcdb4edda8a853b3312de6" ;;
+        linux-arm64) expected="9f4a826c5d1e76b5c503e3299807af8549acca2e03734b6603611be275917ede" ;;
+        macos-x86_64) expected="e425f000044741a9bebbedb265ef66efeabba48e45ac15374b1df9c092b5df3e" ;;
+        macos-arm64) expected="26607010b1822a7a7b0353d372cc00be149f91d1382e8a99df96ab4335afc6a0" ;;
+        windows-x86_64) expected="04e3290f4c495b952c10da2f3627764be3e9ac598dd5a0a79bf65c112d1200f7" ;;
+        *)
+            echo -e "${RED}No pinned checksum for ${target}${NC}"
+            exit 1
+            ;;
+    esac
+    if command -v sha256sum >/dev/null 2>&1; then
+        echo "${expected}  ${filename}" | sha256sum -c -
+    elif command -v shasum >/dev/null 2>&1; then
+        echo "${expected}  ${filename}" | shasum -a 256 -c -
+    else
+        echo -e "${RED}sha256sum or shasum is required to verify the download${NC}"
         exit 1
     fi
 
