@@ -1,0 +1,161 @@
+{
+  "baseline": {
+    "upstream": "https://github.com/usestrix/strix",
+    "ref": "main",
+    "commit_sha": "9ed84f99c8f13fc921baebc59e0c696108cfab3e",
+    "commit_time_hkt": "2026-11-26 02:05:25 Asia/Hong_Kong",
+    "audit_note": "静态阅读。未做动态验证，不得称为已验证可部署。"
+  },
+  "counts": {"高": 1, "中": 4, "低": 3},
+  "findings": [
+    {
+      "id": "STRIX-20261126-001",
+      "级别": "高",
+      "类别": "隔离与宿主完整性",
+      "路径": [
+        "strix/runtime/docker_client.py",
+        "strix/runtime/session_manager.py",
+        "strix/interface/utils.py",
+        "containers/Dockerfile",
+        "containers/docker-entrypoint.sh",
+        "strix/config/settings.py",
+        "strix/core/action_approvals.py",
+        "strix/agents/prompts/system_prompt.jinja"
+      ],
+      "行号": {
+        "strix/runtime/docker_client.py": "244-267",
+        "strix/runtime/session_manager.py": "69-81,318-347",
+        "strix/interface/utils.py": "1313-1337,1406-1439",
+        "containers/Dockerfile": "42-45",
+        "containers/docker-entrypoint.sh": "3-17",
+        "strix/config/settings.py": "143-156",
+        "strix/core/action_approvals.py": "1-6,41-43,335-338",
+        "strix/agents/prompts/system_prompt.jinja": "69-86"
+      },
+      "commit_sha": "9ed84f99c8f13fc921baebc59e0c696108cfab3e",
+      "证据链接": "https://github.com/usestrix/strix/blob/9ed84f99c8f13fc921baebc59e0c696108cfab3e/strix/runtime/docker_client.py#L244-L267",
+      "确认状态": "已确认（静态）。未在本环境启动容器。",
+      "描述": "默认 Docker 沙箱不是能挡住敌对或被提示注入的代理的边界。创建容器时总是追加 NET_ADMIN 与 NET_RAW，并写入 host.docker.internal=host-gateway。本地代码目标默认以可写 bind 挂到 /workspace/<子目录>（read_only 缺省为假）；.git/.agents/.codex 仅在 protect_metadata 且非只读时再以只读盖住。镜像内 pentester 拥有 NOPASSWD:ALL，入口在 Linux 上还会用 sudo 把容器用户改成宿主 uid。资源上限默认不开。SYS_ADMIN 与 apparmor:unconfined 只在 SDK 判定 manifest 需要 FUSE/NFS/S3 挂载时加上；本树默认 Manifest 不走这条路径。动作审批默认关闭，模块自己写明它挡的是粗心代理，不是敌对代理。系统提示要求自主执行、不要等待批准。结果：白盒扫描时，模型在容器里可以 sudo 到 root，改写挂载的宿主项目文件（对该树而言容器 root 就是宿主 root），并经 host-gateway 访问宿主非回环服务。未挂载 docker.sock，也未设置 privileged。",
+      "建议": "本地源默认只读，写补丁走单独的可写工作副本。容器去掉免密 sudo，或启用 user namespace，使容器 root 不能写成宿主 root。不要默认下发 NET_ADMIN/NET_RAW 与 host-gateway；需要时再开。给内存、pids 一个默认上限。把审批或出站目标限制做成默认开、且不依赖模型自报的命令文本。"
+    },
+    {
+      "id": "STRIX-20261126-002",
+      "级别": "中",
+      "类别": "暴露面",
+      "路径": [
+        "containers/docker-entrypoint.sh",
+        "strix/runtime/docker_client.py",
+        "strix/runtime/session_manager.py",
+        "strix/runtime/caido_bootstrap.py",
+        "containers/Dockerfile"
+      ],
+      "行号": {
+        "containers/docker-entrypoint.sh": "20,41-47",
+        "strix/runtime/docker_client.py": "244-247",
+        "strix/runtime/session_manager.py": "38-39,346",
+        "strix/runtime/caido_bootstrap.py": "3-7,26-28,46-55",
+        "containers/Dockerfile": "75-90"
+      },
+      "commit_sha": "9ed84f99c8f13fc921baebc59e0c696108cfab3e",
+      "证据链接": "https://github.com/usestrix/strix/blob/9ed84f99c8f13fc921baebc59e0c696108cfab3e/containers/docker-entrypoint.sh#L41-L47",
+      "确认状态": "已确认（静态）。未探测端口。",
+      "描述": "沙箱入口把 Caido 听在 0.0.0.0:48080，带 --allow-guests，CA 的 PKCS#12 导出口令为空字符串（只记位置，不抄口令）。宿主侧把该端口发布到 127.0.0.1 的临时端口。引导代码用无认证的 loginAsGuest 取访问令牌。bootstrap 注释写成容器内 127.0.0.1，与入口的 0.0.0.0 不一致。默认桥接网上的其他容器可以访问沙箱 IP 的 48080；本机其他用户或进程可以打到发布出来的 localhost 端口并游客登录，从而读到代理里的流量和凭据。未设置 STRIX_DOCKER_SANDBOX_NETWORK 时不会改成独立网络。",
+      "建议": "Caido 只听 127.0.0.1，关掉游客登录或要求引导口令。发布端口保持 127.0.0.1。把沙箱放到不允许旁路容器互访的网络。"
+    },
+    {
+      "id": "STRIX-20261126-003",
+      "级别": "中",
+      "类别": "供应链",
+      "路径": [
+        "scripts/install.sh",
+        "strix/config/settings.py",
+        "containers/Dockerfile",
+        "strix/interface/update_check.py"
+      ],
+      "行号": {
+        "scripts/install.sh": "7,146-168",
+        "strix/config/settings.py": "187-189",
+        "containers/Dockerfile": "6,16-20,33,96,114-119,188,216-221",
+        "strix/interface/update_check.py": "315-346"
+      },
+      "commit_sha": "9ed84f99c8f13fc921baebc59e0c696108cfab3e",
+      "证据链接": "https://github.com/usestrix/strix/blob/9ed84f99c8f13fc921baebc59e0c696108cfab3e/containers/Dockerfile#L6",
+      "确认状态": "配方已确认。镜像层未拉取，不得写成已确认安全。2026-11-26 09:39 香港时间只读到 GHCR 索引摘要，见 supply-chain.md。",
+      "描述": "安装脚本用 curl 下载 GitHub Release 后直接解压，没有校验和，并 docker pull 标签 ghcr.io/usestrix/strix-sandbox:1.4.1。运行时默认镜像同一标签，源码不写 digest。Dockerfile 两段都是 kalilinux/kali-rolling:latest。构建期对 httpx、vulnx、gospider、interactsh-client、govulncheck 使用 @latest，对一批 npm 全局包使用 @latest，并用管道执行 astral uv 与 trufflehog 的安装脚本。brotli 的 Debian 包没有校验和。Trivy 与 opengrep 在同一文件里有 sha256。自更新只在 GitHub 返回 sha256 digest 时核对，没有 digest 就跳过校验并继续替换二进制。",
+      "建议": "安装包与自更新在没有校验和时失败。默认镜像改为 digest。构建期工具改为锁定版本加校验和，去掉管道安装脚本。基础镜像不用滚动 latest。"
+    },
+    {
+      "id": "STRIX-20261126-004",
+      "级别": "中",
+      "类别": "依赖是否恶意",
+      "路径": ["pyproject.toml", "uv.lock"],
+      "行号": {"pyproject.toml": "38,77-80", "uv.lock": "1127-1129"},
+      "commit_sha": "9ed84f99c8f13fc921baebc59e0c696108cfab3e",
+      "证据链接": "https://github.com/usestrix/strix/blob/9ed84f99c8f13fc921baebc59e0c696108cfab3e/pyproject.toml#L38",
+      "确认状态": "锁文件版本已确认不是 MAL-2026-2144 所列恶意版本。约束缺口已确认。未安装、未比对 wheel 字节。",
+      "描述": "uv.lock 把 litellm 钉在 1.101.0（PyPI，带 hash）。OSV MAL-2026-2144 的恶意版本是 1.82.7、1.82.8、1.107.0，不含 1.101.0。官方说明 2026-10-21 的 1.107.0 wheel 含凭据窃取与启动期代码执行，且已下架。pyproject 的直接依赖是 litellm>=1.101.0，没有上界。exclude-newer=5 days 只作用于 uv 重新锁定，不约束下游 pip install 按 pyproject 解析。因此锁文件本身避开了已知恶意 wheel，但无锁安装会接受 1.107.0 以及之后任何更高版本。",
+      "建议": "给 litellm 加上小于已知恶意版本、或等于已审查版本的上界，并让发布物带上哈希锁定。无锁安装不要解析 >=1.101.0。"
+    },
+    {
+      "id": "STRIX-20261126-005",
+      "级别": "中",
+      "类别": "供应链已知漏洞",
+      "路径": ["uv.lock", "pyproject.toml"],
+      "行号": {
+        "uv.lock": "517-518,1127-1129,1245-1247,1509-1510,1905-1906,2639-2640",
+        "pyproject.toml": "53"
+      },
+      "commit_sha": "9ed84f99c8f13fc921baebc59e0c696108cfab3e",
+      "证据链接": "https://github.com/usestrix/strix/blob/9ed84f99c8f13fc921baebc59e0c696108cfab3e/uv.lock#L1127-L1129",
+      "确认状态": "OSV 版本命中已确认（查询时间 2026-11-26 09:38 香港时间）。未复现，未判断每条在本进程是否可达。",
+      "描述": "锁定版本有未撤回的安全公告，不是恶意包记录。litellm 1.101.0 命中 GHSA-7hp6-4w63-5g45（Proxy 管理面盐重用，fixed 1.101.3）；本仓把它当客户端，未读到本进程启动 LiteLLM Proxy。cryptography 48.0.1 命中 GHSA-g6cj-pr64-35w5、GHSA-jwv3-5hgf-82ww、GHSA-m2h6-j472-rp4c，修复在 49 或 50，而 pyproject 把 cryptography 限制在 <49。mcp 1.28.1 命中 GHSA-5h93-6whr-6q8j、GHSA-84m7-p3x7-pcfv、GHSA-qx49-fqc8-xw99、GHSA-rwrf-2pqf-9j8j、GHSA-w4fh-qvv9-3v23，修复在 1.30.0。urllib3 2.7.0 命中 GHSA-8988-9cw3-xx77、GHSA-gh4c-6fx4-qh6g、GHSA-vxq7-64xx-v4gw，修复在 2.8.0。pillow 12.3.0 有 62 条、pypdf 6.14.2 有 46 条，抽查均为解析器缺陷，修复版本更高。同一查询对 openai-agents 0.19.0、openai 2.53.0、requests 2.34.2、docker 7.1.0、pyyaml 6.0.3、pydantic 2.13.4、caido-sdk-client 0.2.0、griffelib 2.1.0 返回 0 条。",
+      "建议": "在不破坏发布轮子的前提下升 cryptography、mcp、urllib3、pillow、pypdf、litellm 到各公告的修复版本。升不了的在报告里写明可达性，不要靠 <49 长期停在已公告版本。"
+    },
+    {
+      "id": "STRIX-20261126-006",
+      "级别": "低",
+      "类别": "遥测",
+      "路径": [
+        "strix/telemetry/posthog.py",
+        "strix/telemetry/scarf.py",
+        "strix/telemetry/_common.py",
+        "strix/config/settings.py"
+      ],
+      "行号": {
+        "strix/telemetry/posthog.py": "25-26,59-91",
+        "strix/telemetry/scarf.py": "29,60-94",
+        "strix/telemetry/_common.py": "50-56,87-96",
+        "strix/config/settings.py": "196-199"
+      },
+      "commit_sha": "9ed84f99c8f13fc921baebc59e0c696108cfab3e",
+      "证据链接": "https://github.com/usestrix/strix/blob/9ed84f99c8f13fc921baebc59e0c696108cfab3e/strix/telemetry/posthog.py#L25-L26",
+      "确认状态": "已确认（静态）。未抓包。",
+      "描述": "遥测默认开启，发往 PostHog（us.i.posthog.com）和 Scarf（strix.gateway.scarf.sh）。项目写入键在 posthog.py 常量，本报告不抄录。已读字段是系统、架构、Python 与版本、模型名、扫描模式、白盒/黑盒、是否交互、严重级别计数、CWE、技能名、用量与费用。base_props 与 exception_props 不包含目标 URL、发现正文或异常消息。可用 STRIX_TELEMETRY 关闭。这是默认外联，不是隐蔽后门。",
+      "建议": "默认关闭，或在首次运行明确提示。文档保持与代码一致：不发送目标与报告正文。"
+    },
+    {
+      "id": "STRIX-20261126-007",
+      "级别": "低",
+      "类别": "隔离",
+      "路径": ["strix/runtime/docker_client.py"],
+      "行号": {"strix/runtime/docker_client.py": "69-93"},
+      "commit_sha": "9ed84f99c8f13fc921baebc59e0c696108cfab3e",
+      "证据链接": "https://github.com/usestrix/strix/blob/9ed84f99c8f13fc921baebc59e0c696108cfab3e/strix/runtime/docker_client.py#L69-L93",
+      "确认状态": "已确认（静态）。默认不设置该变量。",
+      "描述": "STRIX_DOCKER_SANDBOX_DEVICES 把逗号分隔的宿主设备路径以 rwm 原样传入容器，没有设备名白名单。未设置则不增加设备。注释举例是 /dev/net/tun。若操作者填入 docker.sock 或其他宿主设备，容器内 root 可以借此控制宿主。",
+      "建议": "只允许 /dev/net/tun 这一类明确设备，拒绝套接字路径。"
+    },
+    {
+      "id": "STRIX-20261126-008",
+      "级别": "低",
+      "类别": "供应链",
+      "路径": ["strix/interface/update_check.py"],
+      "行号": {"strix/interface/update_check.py": "315-346"},
+      "commit_sha": "9ed84f99c8f13fc921baebc59e0c696108cfab3e",
+      "证据链接": "https://github.com/usestrix/strix/blob/9ed84f99c8f13fc921baebc59e0c696108cfab3e/strix/interface/update_check.py#L337-L346",
+      "确认状态": "已确认（静态）。未执行 --update。",
+      "描述": "二进制自更新从 GitHub Release 下载归档。有 sha256 digest 时会比对，没有则打印跳过校验并继续解压、替换当前可执行文件。与安装脚本一样，校验失败不是唯一出路，缺校验和也能装上。",
+      "建议": "没有发布摘要时拒绝替换。"
+    }
+  ]
+}
